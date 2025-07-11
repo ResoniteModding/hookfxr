@@ -1,7 +1,5 @@
-#define WIN32_LEAN_AND_MEAN
-#include <windows.h>
+#include "defines.h"
 
-#include <cstdint>
 #include <iostream>
 #include <string>
 
@@ -9,28 +7,39 @@
 #include <nethost.h>
 #include <hostfxr.h>
 
+#include "config.h"
+
 #define HOSTFXR_MAX_PATH 1024
 
 namespace
 {
 wchar_t g_real_hostfxr_path[HOSTFXR_MAX_PATH] = { '\0' };
 wchar_t g_real_dotnet_root_path[HOSTFXR_MAX_PATH] = { '\0' };
-wchar_t g_modified_app_path[HOSTFXR_MAX_PATH] = { '\0' };
-
 HMODULE g_real_hostfxr_module{ nullptr };
+    
+hookfxr_config g_hookfxr_config;
 
 // src/native/corehost/error_codes.h
 enum StatusCode
 {
     FrameworkMissingFailure = 0x80008096,
 };
-    
-void find_real_dotnet()
+
+bool find_real_dotnet(const wchar_t* app_path)
 {
-    // If we fail here, g_RealHostfxrModule will be nullptr and all the proxy functions will return FrameworkMissingFailure.
+    // Already resolved
+    if (g_real_hostfxr_module)
+    {
+        return true;
+    }
+
+    // If we fail here, g_real_hostfxr_module will be nullptr and all the proxy functions will return FrameworkMissingFailure.
     // This causes the apphost to show an error message.
-    
-    constexpr get_hostfxr_parameters params = { sizeof(get_hostfxr_parameters), g_modified_app_path, nullptr };
+    const get_hostfxr_parameters params = {
+        .size = sizeof(get_hostfxr_parameters),
+        .assembly_path = app_path,
+        .dotnet_root = nullptr
+    };
     size_t fxr_path_size{ HOSTFXR_MAX_PATH };
     size_t dotnet_root_path_size{ HOSTFXR_MAX_PATH };
     const int ret = get_hostfxr_path_with_root(
@@ -43,7 +52,7 @@ void find_real_dotnet()
     if (ret != 0)
     {
         std::cerr << "Failed to get hostfxr path with root: " << std::hex << ret << '\n';
-        return;
+        return false;
     }
     
     if (fxr_path_size > 0 && fxr_path_size < HOSTFXR_MAX_PATH &&
@@ -52,39 +61,26 @@ void find_real_dotnet()
         g_real_hostfxr_module = LoadLibraryW(g_real_hostfxr_path);
         if (!g_real_hostfxr_module)
         {
-            std::cerr << "Failed to load hostfxr module: " << g_real_hostfxr_path << '\n';
+            std::cerr << "Failed to load hostfxr module\n";
+            return false;
         }
         
-        return;
+        return true;
     }
 
-    std::cerr << "Hostfxr path or dotnet root path size is invalid: "
+    std::wcerr << L"Hostfxr path or dotnet root path size is invalid: "
               << fxr_path_size << ", " << dotnet_root_path_size << '\n';
+    return false;
 }
 
-void setup_modified_app_path()
+const wchar_t* get_overriden_app_path(const wchar_t* real_app_path)
 {
-    // TODO: Move to ini file
-    // This needs to have a x.runtimeconfig.json file in the same directory as the DLL.
-    const wchar_t ReplacedAssemblyName[] = L"MonkeyLoaderWrapper.dll";
-    
-    wchar_t current_module_path[HOSTFXR_MAX_PATH];
-    if (GetModuleFileNameW(nullptr, current_module_path, HOSTFXR_MAX_PATH) == 0)
+    if (!g_hookfxr_config.m_enable || g_hookfxr_config.m_target_assembly.empty())
     {
-        return;
+        return real_app_path;
     }
-    
-    std::wstring current_module(current_module_path);
-    size_t last_slash_pos = current_module.find_last_of(L"\\/");
-    if (last_slash_pos != std::wstring::npos)
-    {
-        current_module.replace(last_slash_pos + 1, current_module.length() - last_slash_pos - 1, ReplacedAssemblyName);
-        wcscpy_s(g_modified_app_path, HOSTFXR_MAX_PATH, current_module.c_str());
-    }
-    else
-    {
-        wcscpy_s(g_modified_app_path, HOSTFXR_MAX_PATH, ReplacedAssemblyName);
-    }
+
+    return g_hookfxr_config.m_target_assembly.c_str();
 }
 }
 
@@ -94,8 +90,14 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD  ul_reason_for_call, LPVOID lpReser
     if (ul_reason_for_call != DLL_PROCESS_ATTACH)
         return TRUE;
 
-    setup_modified_app_path();
-    find_real_dotnet();
+    g_hookfxr_config = get_hookfxr_config();
+
+    // Write dotnet override to DOTNET_ROOT so that nethost will resolve it from there
+    if (!g_hookfxr_config.m_dotnet_root_override.empty())
+    {
+        SetEnvironmentVariableW(L"DOTNET_ROOT", g_hookfxr_config.m_dotnet_root_override.c_str());
+    }
+    
     return TRUE;
 }
 
@@ -110,7 +112,8 @@ extern "C"
 
 SHARED_API int HOSTFXR_CALLTYPE hostfxr_main_bundle_startupinfo(const int argc, const char_t* argv[], const char_t* host_path, const char_t* dotnet_root, const char_t* app_path, int64_t bundle_header_offset)
 {
-    if (!g_real_hostfxr_module)
+    const wchar_t* applicable_app_path = get_overriden_app_path(app_path);
+    if (!find_real_dotnet(applicable_app_path))
     {
         return FrameworkMissingFailure;
     }
@@ -120,14 +123,21 @@ SHARED_API int HOSTFXR_CALLTYPE hostfxr_main_bundle_startupinfo(const int argc, 
 
     if (hostfxr_main_bundle_startupinfo_ptr)
     {
-        return hostfxr_main_bundle_startupinfo_ptr(argc, argv, host_path, g_real_dotnet_root_path, g_modified_app_path, bundle_header_offset);
+        return hostfxr_main_bundle_startupinfo_ptr(
+            argc,
+            argv,
+            host_path,
+            g_real_dotnet_root_path,
+            applicable_app_path,
+            bundle_header_offset);
     }
     return -1;
 }
 
 SHARED_API int HOSTFXR_CALLTYPE hostfxr_main_startupinfo(const int argc, const char_t* argv[], const char_t* host_path, const char_t* dotnet_root, const char_t* app_path)
 {
-    if (!g_real_hostfxr_module)
+    const wchar_t* applicable_app_path = get_overriden_app_path(app_path);
+    if (!find_real_dotnet(applicable_app_path))
     {
         return FrameworkMissingFailure;
     }
@@ -137,25 +147,19 @@ SHARED_API int HOSTFXR_CALLTYPE hostfxr_main_startupinfo(const int argc, const c
 
     if (hostfxr_main_startupinfo_ptr)
     {
-        return hostfxr_main_startupinfo_ptr(argc, argv, host_path, g_real_dotnet_root_path, g_modified_app_path);
+        return hostfxr_main_startupinfo_ptr(
+            argc,
+            argv,
+            host_path,
+            g_real_dotnet_root_path,
+            applicable_app_path);
     }
     return -1;
 }
 
 SHARED_API int HOSTFXR_CALLTYPE hostfxr_main(const int argc, const char_t* argv[])
 {
-    if (!g_real_hostfxr_module)
-    {
-        return FrameworkMissingFailure;
-    }
-    
-    auto hostfxr_main_ptr = reinterpret_cast<hostfxr_main_fn>(
-        GetProcAddress(g_real_hostfxr_module, "hostfxr_main"));
-
-    if (hostfxr_main_ptr)
-    {
-        return hostfxr_main_ptr(argc, argv);
-    }
+    // Unsupported
     return -1;
 }
 
