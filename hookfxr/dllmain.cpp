@@ -7,6 +7,7 @@
 
 #define NETHOST_USE_AS_STATIC
 #include <nethost.h>
+#include <hostfxr.h>
 
 #define HOSTFXR_MAX_PATH 1024
 
@@ -106,22 +107,6 @@ extern "C"
 #endif // __cplusplus
 
 #define SHARED_API extern "C" __declspec(dllexport)
-#define HOSTFXR_CALLTYPE __cdecl
-
-typedef int32_t(HOSTFXR_CALLTYPE* hostfxr_main_fn)(const int argc, const char_t** argv);
-typedef int32_t(HOSTFXR_CALLTYPE* hostfxr_main_startupinfo_fn)(
-    const int argc,
-    const char_t** argv,
-    const char_t* host_path,
-    const char_t* dotnet_root,
-    const char_t* app_path);
-typedef int32_t(HOSTFXR_CALLTYPE* hostfxr_main_bundle_startupinfo_fn)(
-    const int argc,
-    const char_t** argv,
-    const char_t* host_path,
-    const char_t* dotnet_root,
-    const char_t* app_path,
-    int64_t bundle_header_offset);
 
 SHARED_API int HOSTFXR_CALLTYPE hostfxr_main_bundle_startupinfo(const int argc, const char_t* argv[], const char_t* host_path, const char_t* dotnet_root, const char_t* app_path, int64_t bundle_header_offset)
 {
