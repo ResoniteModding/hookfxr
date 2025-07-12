@@ -12,9 +12,9 @@ target_assembly=MyApp.dll
 ```
 
 When you run your application, `hostfxr.dll` will intercept the entrypoint and redirect it to `MyApp.dll` instead of the original
-that was shipped with the application. Refer [to the ini file](https://github.com/MonkeyModdingTroop/hookfxr/blob/master/hookfxr/hookfxr.ini) for more options.
+that was shipped with the application. Refer [to the ini file](hookfxr/hookfxr.ini) for more options.
 
 ## Limitations
 - Only supports .NET Core global framework-dependent deployments. Self-contained deployments are currently not supported.
 - Currently only supports Windows. On other platforms, just run your code directly.
-- Requires a custom version of libnethost [built from this branch of runtime](https://github.com/dotnet/runtime/compare/v9.0.6...MonkeyModdingTroop:runtime:v9.0.6-hookfxr) that exposes additional functionality and is built against a static CRT.[hookfxr.ini](hookfxr/hookfxr.ini)
+- Requires a custom version of libnethost [built from this branch of runtime](https://github.com/dotnet/runtime/compare/v9.0.6...MonkeyModdingTroop:runtime:v9.0.6-hookfxr) that exposes additional functionality and is built against a static CRT.
