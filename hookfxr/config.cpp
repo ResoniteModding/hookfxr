@@ -98,6 +98,14 @@ void parse_command_line(hookfxr_config& config)
         {
             config.m_dotnet_root_override = argv[++i];
         }
+        else if (arg == L"--hookfxr-merge-deps-json")
+        {
+            config.m_merge_deps_json = true;
+        }
+        else if (arg == L"--hookfxr-no-merge-deps-json")
+        {
+            config.m_merge_deps_json = false;
+        }
     }
     
     LocalFree(argv);
@@ -118,6 +126,7 @@ hookfxr_config get_hookfxr_config()
         config.m_enable = read_ini_bool(ini_path, L"hookfxr", L"enable", false);
         config.m_target_assembly = make_absolute_path(read_ini_string(ini_path, L"hookfxr", L"target_assembly"));
         config.m_dotnet_root_override = read_ini_string(ini_path, L"hookfxr", L"dotnet_root_override");
+        config.m_merge_deps_json = read_ini_bool(ini_path, L"hookfxr", L"merge_deps_json", true);
     }
     else
     {
