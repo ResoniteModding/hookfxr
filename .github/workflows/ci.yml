@@ -1,0 +1,126 @@
+name: Continuous Integration
+
+on:
+  push:
+    branches: [ master ]
+    paths-ignore:
+      - '**.md'
+      - 'LICENSE'
+      - '.gitignore'
+  pull_request:
+    branches: [ master ]
+    paths-ignore:
+      - '**.md'
+      - 'LICENSE'
+      - '.gitignore'
+
+jobs:
+  build-and-test:
+    runs-on: windows-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        submodules: recursive
+        
+    - name: Add MSBuild to PATH
+      uses: microsoft/setup-msbuild@v2
+      
+    - name: Build Debug
+      run: msbuild hookfxr.sln /p:Configuration=Debug /p:Platform=x64 /p:PlatformToolset=v143 /m
+      
+    - name: Build Release
+      run: msbuild hookfxr.sln /p:Configuration=Release /p:Platform=x64 /p:PlatformToolset=v143 /m
+      
+    - name: Check build outputs
+      run: |
+        if not exist "x64\Debug\hostfxr.dll" (
+          echo "Debug build failed - hostfxr.dll not found"
+          exit 1
+        )
+        if not exist "x64\Release\hostfxr.dll" (
+          echo "Release build failed - hostfxr.dll not found"
+          exit 1
+        )
+        echo "Build outputs verified successfully"
+      shell: cmd
+      
+    - name: Setup Developer Command Prompt
+      uses: ilammy/msvc-dev-cmd@v1
+      
+    - name: Run basic validation
+      run: |
+        REM Check DLL exports
+        dumpbin /exports x64\Release\hostfxr.dll > exports.txt
+        
+        REM Verify key exports exist
+        findstr /C:"hostfxr_main" exports.txt >nul
+        if errorlevel 1 (
+          echo ERROR: hostfxr_main export not found
+          exit 1
+        )
+        
+        findstr /C:"hostfxr_main_startupinfo" exports.txt >nul
+        if errorlevel 1 (
+          echo ERROR: hostfxr_main_startupinfo export not found
+          exit 1
+        )
+        
+        echo DLL exports validated successfully
+      shell: cmd
+      
+    - name: Upload Debug artifacts
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: ci-debug-${{ github.run_number }}
+        path: |
+          x64/Debug/hostfxr.dll
+          x64/Debug/hostfxr.pdb
+        retention-days: 7
+        
+    - name: Upload Release artifacts
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: ci-release-${{ github.run_number }}
+        path: |
+          x64/Release/hostfxr.dll
+          x64/Release/hostfxr.pdb
+        retention-days: 7
+        
+  code-quality:
+    runs-on: windows-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Setup Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.x'
+        
+    - name: Check file encoding
+      run: |
+        Get-ChildItem -Path hookfxr -Include *.cpp,*.h -Recurse | ForEach-Object {
+          $encoding = [System.Text.Encoding]::Default.GetString([System.IO.File]::ReadAllBytes($_.FullName))[0..2]
+          if ($encoding -eq [char]0xEF + [char]0xBB + [char]0xBF) {
+            Write-Host "Warning: $($_.Name) has BOM encoding"
+          }
+        }
+      shell: pwsh
+      
+    - name: Check line endings
+      run: |
+        $files = Get-ChildItem -Path hookfxr -Include *.cpp,*.h,*.ini -Recurse
+        foreach ($file in $files) {
+          $content = Get-Content $file.FullName -Raw
+          if ($content -match "`r`n") {
+            Write-Host "OK: $($file.Name) uses Windows line endings (CRLF)"
+          } elseif ($content -match "`n") {
+            Write-Host "Warning: $($file.Name) uses Unix line endings (LF)"
+          }
+        }
+      shell: pwsh
