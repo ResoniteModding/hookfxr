@@ -14,6 +14,10 @@ target_assembly=MyApp.dll
 When you run your application, `hostfxr.dll` will intercept the entrypoint and redirect it to `MyApp.dll` instead of the original
 that was shipped with the application. Refer [to the ini file](hookfxr/hookfxr.ini) for more options.
 
+## Other features
+* .deps.json of target assembly can be merged into the one of the origin assembly, by setting `merge_deps_json=true` in `hookfxr.ini`. This allows the runtime to resolve native assemblies of the origin assembly and the target assembly.
+* The path of the origin assembly is now written into the `HOOKFXR_ORIGINAL_APP_PATH` environment variable before the runtime is loaded. Your loader can access this variable to know what target assembly it needs to load.
+
 ## Limitations
 - Only supports .NET Core global framework-dependent deployments. Self-contained deployments are currently not supported.
 - Currently only supports Windows. On other platforms, just run your code directly.
