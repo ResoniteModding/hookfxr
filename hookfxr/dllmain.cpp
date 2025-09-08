@@ -84,6 +84,7 @@ bool find_real_dotnet(const wchar_t* app_path)
 const wchar_t* get_overriden_app_path(const wchar_t* real_app_path)
 {
     wcscpy_s(g_original_app_path, HOSTFXR_MAX_PATH, real_app_path);
+    SetEnvironmentVariableW(L"HOOKFXR_ORIGINAL_APP_PATH", g_original_app_path);
     
     if (!g_hookfxr_config.m_enable || g_hookfxr_config.m_target_assembly.empty())
     {
